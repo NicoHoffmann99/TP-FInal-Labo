@@ -3,6 +3,8 @@
 .def seteador = R16
 .def transmisor = R17
 
+.equ N = 78
+
 .dseg
 
 .org SRAM_START
@@ -14,6 +16,8 @@
 .org PCI2addr
 	rjmp boton_pulsado
 
+.org URXCaddr
+	rjmp recepcion_completa
 
 .org INT_VECTORS_SIZE
 
@@ -33,6 +37,7 @@ buscando_contricante_setup:
 	;Puerto D PIN 2(Botton) lectura => hace interrupciones
 	LDI seteador, 0b00000100
 	OUT DDRD, seteador
+	OUT PORTD, setador
 
 ;-------------------------------------------------------
 ;-------------------SETEANDO USART----------------------
@@ -75,6 +80,15 @@ buscando_contrincante:
 	RJMP buscando_contrincante
 
 boton_pulsado:
-	LDI transimsor, 78
+	LDI transimsor, N
 	OUT UDR0, transmisor
+	RETI
+
+recepcion_completa:
+	IN receptor, UDR0
+	CPI receptor, N
+	BRNE recepcion_copleta_fin
+	;CAMBIAR FLAG de ETAPA de juego
+	;PAUSA DE 3 SEGUNDOS CON LEDS TITILANDO
+recepcion_completa_fin
 	RETI
