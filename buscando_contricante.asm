@@ -55,16 +55,16 @@ buscando_contricante_setup:
 	;UCSR0A Solo tiene flags y el modo doble velocidad(dejo simple velocidad)
 	;UDRE0 ==> 1, Seteo que el buffer de transmisión está listo para recibir data
 	LDI setador, 0b00100000
-	OUT UCAR0A, seteador
+	OUT UCSR0A, seteador
 
 	;USCR0C 
 	;UMSELO = 0 0  ==> Modo asíncronico
 	;UPM0 = 0 0 ==> Paridad desactivada
 	;USB0 = 0 ==> 1 Bit de Stop
-	;UCSZ01/00 = 1 0 ==> N = 78 tiene 7 bits, activo para 7 bits 
+	;UCSZ01/00 = 1 1 ==> Activo para 8 bits 
 	;UCPOL0 ==> Como lo tengo asincronico no importa
-	LDI seteador, 0b00001000
-	OUT USCR0C, seteador
+	LDI seteador, 0b00000110
+	OUT UCSR0C, seteador
 
 	;UCSR0B 
 	;RXCIE0 = 1 ==> Habilito interrupción por recepción completa
