@@ -87,12 +87,12 @@ buscando_contrincante:
 boton_pulsado:
 	LDI transimsor, N
 	OUT UDR0, transmisor
-	RETI
+	RETI	
 
 recepcion_completa:
 	IN receptor, UDR0
 	CPI receptor, N
-	BRNE recepcion_copleta_fin
+	BRNE recepcion_completa_fin
 	;CAMBIAR FLAG de ETAPA de juego
 	;PAUSA DE 3 SEGUNDOS CON LEDS TITILANDO
 recepcion_completa_fin
