@@ -2,12 +2,17 @@
 
 .def seteador = R16
 .def transmisor = R17
+.def contador= R18
+.def digito= R19
 
 .def GREG = R20
 ;+----+----+----+----+----+----+----+----+		E3 | E2 | E1
 ;|    |	   |    |    |    | E3 | E2 | E1 |         |    |
 ;+----+----+----+----+----+----+----+----+         |    |
                                               
+.def receptor = R21
+
+
 .equ N = 78
 
 .dseg
@@ -16,13 +21,19 @@
 
 .cseg
 .org 0x0000
-	rjmp buscando_contricante_seteo
+	rjmp buscando_contricante_setup
 
 .org PCI2addr
 	rjmp boton_pulsado
 
 .org URXCaddr
 	rjmp recepcion_completa
+
+.org UTXCaddr
+	rjmp transmision_completa
+
+.org OC1Aaddr
+	rjmp timer1_interrupt
 
 .org INT_VECTORS_SIZE
 
@@ -31,30 +42,36 @@ buscando_contricante_setup:
 	out sph, seteador
 	ldi seteador, LOW(RAMEND)
 	out spl, seteador
+	
+	CLR digito
+	LDI GREG, 1
 
 ;-------------------------------------------------------
 ;------------------SETEANDO PUERTOS---------------------
 	LDI seteador, 0b00001111
 	;Puerto B PINES 0-3 escritura
 	OUT DDRB, seteador
+	OUT PINB, digito
 	;Puerto C PIN 6(RESET) lectura, PIN 4(ADC) lectura, PINES 0-3 escritura
 	OUT DDRC, seteador
 	;Puerto D PIN 2(Botton) lectura => hace interrupciones
 	LDI seteador, 0b00000100
 	OUT DDRD, seteador
-	OUT PORTD, setador
+	OUT PORTD, seteador
+	
 
 ;-------------------------------------------------------
 ;-------------------SETEANDO USART----------------------
+	;TODO chequear que tipo de instucciones va para setear USART si IN/OUT o STS/LDS (la hoja de datos dice IN/OUT pero al compilar salta error)
 	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51)
 	CLR seteador
-	OUT UBRRGH, setador
+	OUT UBRR0H, seteador
 	LDI seteador, 51
-	OUT UBRRGL, seteador
+	OUT UBRR0L, seteador
 
 	;UCSR0A Solo tiene flags y el modo doble velocidad(dejo simple velocidad)
 	;UDRE0 ==> 1, Seteo que el buffer de transmisión está listo para recibir data
-	LDI setador, 0b00100000
+	LDI seteador, 0b00100000
 	OUT UCSR0A, seteador
 
 	;USCR0C 
@@ -85,15 +102,51 @@ buscando_contrincante:
 	RJMP buscando_contrincante
 
 boton_pulsado:
-	LDI transimsor, N
+	LDI transmisor, N
 	OUT UDR0, transmisor
 	RETI	
+
+transmision_completa:
+	LSL GREG
+	RCALL espera_tres_segundos
+	RETI
 
 recepcion_completa:
 	IN receptor, UDR0
 	CPI receptor, N
 	BRNE recepcion_completa_fin
-	;CAMBIAR FLAG de ETAPA de juego
-	;PAUSA DE 3 SEGUNDOS CON LEDS TITILANDO
-recepcion_completa_fin
+	LSL GREG
+	RCALL espera_tres_segundos
+recepcion_completa_fin:
+	RETI
+
+espera_tres_segundos:
+	LDI contador, 12
+	;Seteo TIMER 1, quiero que los leds titilen cada 0,25s
+	;Modo 4 CTC, Prescaler 64
+	LDI seteador, 0
+	STS TCCR1A, seteador
+	LDI seteador, 0b00001011
+	;Para el prescaler de 64 necesito poner como TOP 31249
+	LDI seteador, 0x11
+	STS OCR1AL, seteador
+	LDI seteador, 0x7A
+	STS OCR1AH, seteador
+	;Habilito a TIMER 1 a hacer interrupciones
+	LDI seteador, 0b00000010
+	STS TIMSK1, seteador
+espera_tres_segundos_loop:
+	CPI contador, 0
+	BREQ espera_tres_segundos_fin
+	RJMP espera_tres_segundos_loop
+espera_tres_segundos_fin:
+	;Deshabilito TIMER 1 para hacer interrupciones
+	CLR seteador
+	STS TIMSK1, seteador
+	RET
+
+timer1_interrupt:
+	DEC contador
+	COM digito
+	OUT PINB, digito
 	RETI
