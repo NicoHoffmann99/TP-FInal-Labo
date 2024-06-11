@@ -63,7 +63,7 @@ buscando_contricante_setup:
 ;-------------------------------------------------------
 ;-------------------SETEANDO USART----------------------
 	
-	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51)
+	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51) 16MHz(UBRRG=103)
 	CLR seteador
 	STS UBRR0H, seteador
 	LDI seteador, 103
