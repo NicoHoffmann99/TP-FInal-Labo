@@ -1,8 +1,8 @@
 
 
 .include "m328pdef.inc"
-.equ valor_alto_ADC = 200
-.equ valor_bajo_ADC = 50
+.equ valor_alto_ADC = 204	;255 es 5V -> Quiero 4V que es redondear(255*4/5) = 204
+.equ valor_bajo_ADC = 51	;Quiero 1V que es redondear(255*1/5) = 51
 
 .def seteador = R16
 .def digito = R17
