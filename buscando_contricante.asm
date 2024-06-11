@@ -62,17 +62,17 @@ buscando_contricante_setup:
 
 ;-------------------------------------------------------
 ;-------------------SETEANDO USART----------------------
-	;TODO chequear que tipo de instucciones va para setear USART si IN/OUT o STS/LDS (la hoja de datos dice IN/OUT pero al compilar salta error)
+	
 	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51)
 	CLR seteador
-	OUT UBRR0H, seteador
-	LDI seteador, 51
-	OUT UBRR0L, seteador
+	STS UBRR0H, seteador
+	LDI seteador, 103
+	STS UBRR0L, seteador
 
 	;UCSR0A Solo tiene flags y el modo doble velocidad(dejo simple velocidad)
 	;UDRE0 ==> 1, Seteo que el buffer de transmisión está listo para recibir data
 	LDI seteador, 0b00100000
-	OUT UCSR0A, seteador
+	STS UCSR0A, seteador
 
 	;USCR0C 
 	;UMSELO = 0 0  ==> Modo asíncronico
@@ -81,7 +81,7 @@ buscando_contricante_setup:
 	;UCSZ01/00 = 1 1 ==> Activo para 8 bits 
 	;UCPOL0 ==> Como lo tengo asincronico no importa
 	LDI seteador, 0b00000110
-	OUT UCSR0C, seteador
+	STS UCSR0C, seteador
 
 	;UCSR0B 
 	;RXCIE0 = 1 ==> Habilito interrupción por recepción completa
@@ -92,7 +92,7 @@ buscando_contricante_setup:
 	;UCSZ02 = 0 ==> N es de 7 bits
 	;RXB80 TXB80 = 0 ==> No sirven
 	LDI seteador, 0b11011000
-	OUT UCSR0B, seteador
+	STS UCSR0B, seteador
 
 	SEI
 
@@ -103,7 +103,7 @@ buscando_contrincante:
 
 boton_pulsado:
 	LDI transmisor, N
-	OUT UDR0, transmisor
+	STS UDR0, transmisor
 	RETI	
 
 transmision_completa:
@@ -112,7 +112,7 @@ transmision_completa:
 	RETI
 
 recepcion_completa:
-	IN receptor, UDR0
+	LDS receptor, UDR0
 	CPI receptor, N
 	BRNE recepcion_completa_fin
 	LSL GREG
