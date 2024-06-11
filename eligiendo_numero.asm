@@ -3,12 +3,17 @@
 .include "m328pdef.inc"
 .equ valor_alto_ADC = 200
 .equ valor_bajo_ADC = 50
+
 .def seteador = R16
 .def digito = R17
 .def pos_digito = R18
 .def buffer = R19
 .def cant_digito = R20
 .def indice = R21 ;Registro que mantiene el indice de la posicion de la tabla digitos_no_seleccionados
+.def uno = R22		;Registro que guarda un 1, utilizado para operaciones aritmeticas
+.def cero = R23		;Registro que guarda un 0.
+
+
 .dseg
 
 .org SRAM_START
@@ -26,7 +31,7 @@ digitos_no_seleccionados: .byte 10
 
 .org INT_VECTORS_SIZE
 
-;SETEO PARA LA PARTE DE ELIGIENDO NUMERO(DESPUÉS VEMOS DONDE MOVER LA ACTIVACIÓN DE REGISTROS)
+;SETEO PARA LA PARTE DE ELIGIENDO NUMERO(DESPUï¿½S VEMOS DONDE MOVER LA ACTIVACIï¿½N DE REGISTROS)
 eligiendo_numero_seteo:
     ldi seteador, HIGH(RAMEND)
 	out sph, seteador
@@ -35,15 +40,17 @@ eligiendo_numero_seteo:
 
 ;-------------------------------------------------------
 ;-----------Seteando registros necesarios---------------
-	;digito es el registro que el usuario está seleccionando con el joystic
+	;digito es el registro que el usuario estï¿½ seleccionando con el joystic
 	LDI digito, 0
 	;cantidad de digitos es la cantidad de digitos ya confirmados
 	LDI cant_digito, 0
 	LDI indice, 0
+	LDI uno, 1
+	LDI cero, 0
 ;-------------------------------------------------------
 ;-----------Puntero a numero_secreto en SRAM------------
-	RCALL cargar_digitos_puntero
-	LDI XL, LOW(numero_secreto)
+	RCALL cargar_digitos_puntero ;Cargo la tabla con los valores del 0 al 9.
+	LDI XL, LOW(numero_secreto)  ;X se usarï¿½ para guardar los dï¿½gitos seleccionados en la SRAM.
 	LDI XH, HIGH(numero_secreto)
 
 ;-------------------------------------------------------
@@ -58,7 +65,7 @@ eligiendo_numero_seteo:
 	OUT DDRD, seteador
 	;TODO iniciar pines de salida en 0
 ;-------------------------------------------------------
-;-------------SETEANDO PIN-CHANGE BOTÓN-----------------
+;-------------SETEANDO PIN-CHANGE BOTï¿½N-----------------
 	;Se habilita a los pines de PORTD a hacer interrupciones por PIN Change
 	LDI seteador, 0b00000100
 	STS PCICR, seteador
@@ -72,16 +79,18 @@ eligiendo_numero_seteo:
 	LDI seteador, 0b01100100
 	STS ADMUX, seteador
 
-	;ADCSCRA setié el ADC en Start Conversion, vemos después cual conviene
+	;ADCSCRA setiï¿½ el ADC en Start Conversion, vemos despuï¿½s cual conviene
 	;ADCSCRA ADEN = 1 => Encender ADC
-	;ADCSCRA ADIE = 1 => Habilito a hacer interrupción
-	;ADCSCRA ADPS = 1 1 1 1 => Prescaler 128 (Después vemos cual conviene)
+	;ADCSCRA ADIE = 1 => Habilito a hacer interrupciï¿½n
+	;ADCSCRA ADPS = 1 1 1 1 => Prescaler 128 (Despuï¿½s vemos cual conviene)
 	LDI seteador, 0b11011111
 	STS ADCSRA, seteador
 	;Con start conversion creo que no hace falta el ADCSRB
 ;-------------------------------------------------------
-;----------------Interrupción Global--------------------
+;----------------Interrupciï¿½n Global--------------------
 	SEI
+
+;-------------------MAIN LOOP (de esta etapa)--------------;
 
 ;LOOP de etapa eligiendo_numero
 eligiendo_numero:
@@ -90,21 +99,26 @@ eligiendo_numero:
 	STS ADCSRA, seteador
 	RJMP eligiendo_numero
 
-;Cuando se apreta el botón salta pin change a esta función
+;-----------------INTERRUPCIONES---------------------;
+
+;Cuando se apreta el botï¿½n salta pin change a esta funciï¿½n
 digito_confirmado:
 	;Se guarda digito en la SRAM y vuelve a 0
 	ST X+, digito
 	CLR digito
 	;se incrementa la cantidad de digitos confirmados
 	INC cant_digito
+	;En la tabla, el dï¿½gito ya seleccionado es guardado como 0xFF para poder evitar seleccionarlo de nuevo.
+	LDI seteador, 0xFF
+	ST Y, seteador
 	RETI
 
-;Interrucón por ADC dado a que se terminó la conversión del valor leido en joystick
+;Interrupciï¿½n por ADC dado a que se terminï¿½ la conversiï¿½n del valor leï¿½do en joystick
 joystic_ADC_interrupt:
 	;Se carga en buffer lo convertido
 	LDS buffer, ADCH
 
-	;TODO vchequear joystick tensión alta tensión baja del joystick
+	;TODO vchequear joystick tensiï¿½n alta tensiï¿½n baja del joystick 
 	;Si buffer > valor_alto_ADC incrementar digito
 	CPI buffer, valor_alto_ADC
 	BRSH joystick_incrementar
@@ -113,49 +127,82 @@ joystic_ADC_interrupt:
 	BRLO joystick_decrementar
 
 	RJMP joystic_ADC_fin
-joystick_incrementar:
-	;TODO dar vuelta la lista en RAM y ver q pasa. (a ver si se puede hacer con Y+, y -Y)
-	ST +Y, digito
-	cpi digito, 0xFF
-	rjmp joystick_incrementar 
-	inc indice
-	cpi indice, 10
+
+joystick_incrementar:	;Rutina donde se busca el siguiente numero en la secuencia del 0 al 9, salteando los ya elegidos, y volviendo al 0 si se incrementa desde el 9.
+	
+	inc indice			;Indice utilizado para saber en que posicion de la tabla se estï¿½ parado.
+	cpi indice, 10		;Si la posiciï¿½n a la que se pasa es 10 -> se excediï¿½ la tabla -> el indice y el puntero vuelven a la primer posicion.
 	breq resetear_indice
+	
+	;Leo la tabla con PREINCREMENTO -> dado que no existe esta instrucciï¿½n, primero sumo 1 a Y, y luego leo.
+	;Sumo 1 a YL sin carry, y luego 0 con carry a YH.
+	add YL, uno
+	adc YH, cero
+	;Leo el numero al que se apunta
+	LD digito, Y
 continuar_joystick_incrementar:
+	;Chequeo si ya fue elegido (si es = a 0xFF)
+	cpi digito, 0xFF	;Si el digito leï¿½do es 0xFF (esto es asï¿½ para los dï¿½gitos ya elegidos) -> repito la rutina (hasta leer uno que no sea 0xFF)
+	breq joystick_incrementar
+	;Si no lo es, escribo la salida por PINC.
 	OUT PINC, digito
-	rjmp joystic_ADC_fin
+	rjmp joystic_ADC_fin	;Fin de la interrupcion.
 
-resetear_indice:
-	clr indice
-	rcall resetear_puntero_y
-	rjmp continuar_joystick_incrementar
-
-joystic_decrementar:
-	dec indice
-	cpi indice, 0xFF
-	breq 
-	ST -Y, digito
-
+joystick_decrementar:
+	dec indice	;Resto 1 al indice
+	cpi indice, 0xFF	;Si el indice era 0 y le resto 1, hubo overflow -> seteo indice = 9 y el puntero Y al final de la tabla.
+	breq maximizar_indice
+	;Leo Y con predecremento.
+	LD digito, -Y
+continuar_joystick_decrementar: ;Si se llego hasta aquï¿½ es porque el dï¿½gito leï¿½do no fue elegido.
+	;Chequeo si ya fue elegido (si es = a 0xFF)
+	cpi digito, 0xFF	;Si el digito leï¿½do es 0xFF (esto es asï¿½ para los dï¿½gitos ya elegidos) -> repito la rutina (hasta leer uno que no sea 0xFF)
+	breq joystick_decrementar
+	;Si no lo es, escribo la salida por PINC.
 	OUT PINC, digito
-joystic_ADC_fin:
+	
+joystic_ADC_fin:	;Fin de la interrupcion.
 	RETI
 
+resetear_indice:	;Rutina utilizada para volver el indice a 0, resetear el puntero Y, y leer a lo que apunta.
+	clr indice
+	rcall resetear_puntero_y
+	LD digito, Y
+	rjmp continuar_joystick_incrementar
 
-;Se cargan los 10 digitos en SRAM para ir comparando con el registro digito y evitar digitos ya seleccionados.
+maximizar_indice:	;Rutina utilizada para setear el indice a 9, apuntar el puntero Y al final de la tabla, y leer a lo que apunta.
+	ldi indice, 9
+	rcall maximizar_puntero_y
+	LD digito, Y
+	rjmp continuar_joystick_decrementar
+	
+;------RUTINAS GLOBALES----------;
+
+;Se cargan los 10 digitos (0 a 9) en SRAM para ir comparando con el registro digito y evitar digitos ya seleccionados.
 cargar_digitos_puntero:
 	rcall resetear_puntero_y
-	LDI setador, 0
+	LDI seteador, 0
 cargar_digitos:
 	CPI seteador, 10
 	BREQ fin_cargar_digitos
 	ST Y+, seteador
-	INC setador
+	INC seteador
 	RJMP cargar_digitos
 fin_cargar_digitos:
 	rcall resetear_puntero_y
 	RET
 
+;Setea el puntero Y al inicio de la tabla
 resetear_puntero_y:
-	LDI YL, LOW(digtios_no_seleccionados)
+	LDI YL, LOW(digitos_no_seleccionados)
 	LDI YH, HIGH(digitos_no_seleccionados)
+	ret
+
+;Setea el puntero Y al final de la tabla
+maximizar_puntero_y:
+	rcall resetear_puntero_y ;Hago que Y apunte al inicio de la tabla
+	;Le sumo 9 a Y
+	ldi seteador, 9
+	add YL, seteador
+	add YH, cero ;Le sumo el carry
 	ret
