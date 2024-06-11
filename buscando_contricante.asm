@@ -55,15 +55,20 @@ buscando_contricante_setup:
 	;Puerto C PIN 6(RESET) lectura, PIN 4(ADC) lectura, PINES 0-3 escritura
 	OUT DDRC, seteador
 	;Puerto D PIN 2(Botton) lectura => hace interrupciones
-	LDI seteador, 0b00000100
+	LDI seteador, 0b00000000
 	OUT DDRD, seteador
+	LDI seteador, 0b00000100
 	OUT PORTD, seteador
-	
+
+;-------------------------------------------------------
+;---------------------PIN CHANGE------------------------
+	LDI seteador, 0b00000100 ;habilitamos al puerto D - Pin 2 a realizar interrupciones externas(con pin change)
+	STS PCICR, seteador 
+	STS PCMSK2, seteador
 
 ;-------------------------------------------------------
 ;-------------------SETEANDO USART----------------------
-	
-	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51) 16MHz(UBRRG=103)
+	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51)
 	CLR seteador
 	STS UBRR0H, seteador
 	LDI seteador, 103
@@ -89,7 +94,7 @@ buscando_contricante_setup:
 	;UDRIE0 = 0 ==> No es necesario habilitar interruciones por registro vacío
 	;RXEN0 = 1 ==> Habilito el receptor
 	;TXEN0 = 1 ==> Habilito el transmisor
-	;UCSZ02 = 0 ==> N es de 7 bits
+	;UCSZ02 = 0 ==> N es de 8 bits
 	;RXB80 TXB80 = 0 ==> No sirven
 	LDI seteador, 0b11011000
 	STS UCSR0B, seteador
@@ -121,12 +126,14 @@ recepcion_completa_fin:
 	RETI
 
 espera_tres_segundos:
-	LDI contador, 12
-	;Seteo TIMER 1, quiero que los leds titilen cada 0,25s
+	;TODO con el micro solo poner contador = 12
+	LDI contador, 24
+	;Seteo TIMER 1, 
 	;Modo 4 CTC, Prescaler 64
 	LDI seteador, 0
 	STS TCCR1A, seteador
 	LDI seteador, 0b00001011
+	STS TCCR1B, seteador
 	;Para el prescaler de 64 necesito poner como TOP 31249
 	LDI seteador, 0x11
 	STS OCR1AL, seteador
@@ -135,8 +142,9 @@ espera_tres_segundos:
 	;Habilito a TIMER 1 a hacer interrupciones
 	LDI seteador, 0b00000010
 	STS TIMSK1, seteador
+	SEI
 espera_tres_segundos_loop:
-	CPI contador, 0
+	CPI contador, 1
 	BREQ espera_tres_segundos_fin
 	RJMP espera_tres_segundos_loop
 espera_tres_segundos_fin:
