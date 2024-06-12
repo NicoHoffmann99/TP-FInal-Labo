@@ -23,7 +23,7 @@
 .org 0x0000
 	rjmp buscando_contricante_setup
 
-.org PCI2addr
+.org INT0addr
 	rjmp boton_pulsado
 
 .org URXCaddr
@@ -55,7 +55,7 @@ buscando_contricante_setup:
 	LDI seteador, 0b00001111
 	;Puerto B PINES 0-3 escritura
 	OUT DDRB, seteador
-	OUT PINB, digito
+	OUT PORTB, digito
 	;Puerto C PIN 6(RESET) lectura, PIN 4(ADC) lectura, PINES 0-3 escritura
 	OUT DDRC, seteador
 	;Puerto D PIN 2(Botton) lectura => hace interrupciones
@@ -68,10 +68,11 @@ buscando_contricante_setup:
 
 
 ;-------------------------------------------------------
-;---------------------PIN CHANGE------------------------
-	LDI seteador, 0b00000100 ;habilitamos al puerto D - Pin 2 a realizar interrupciones externas(con pin change)
-	STS PCICR, seteador 
-	STS PCMSK2, seteador
+;----------------------INTERRUPT------------------------
+	ldi seteador, 0b00000010
+	sts EICRA, R16 ;setar el INT0 por flanco descendente
+	ldi seteador, 0b00000001
+	out EIMSK, R16 ;permito que INT0 haga interrupciones
 
 ;-------------------------------------------------------
 ;----------------------TIMER 0--------------------------
@@ -131,7 +132,7 @@ buscando_contrincante:
 
 boton_pulsado:
 	;Cargo contador para timer0
-	LDI contador, 30
+	LDI contador, 20
 	;Habilito a timer 0 a hacer interrupciones
 	LDI seteador, 0b00000010
 	STS TIMSK0, seteador
@@ -183,15 +184,15 @@ espera_tres_segundos:
 	;TODO con el micro solo poner contador = 12
 	LDI contador, 12
 	;Seteo TIMER 1, un ciclo de prendido y apago es 0.5s
-	;Modo 4 CTC, Prescaler 64
+	;Modo 4 CTC, Prescaler 1024
 	LDI seteador, 0
 	STS TCCR1A, seteador
-	LDI seteador, 0b00001011
+	LDI seteador, 0b00001101
 	STS TCCR1B, seteador
-	;Para el prescaler de 64 necesito poner como TOP 62499
-	LDI seteador, 0x23
+	;Para el prescaler de 1024 necesito poner como TOP 3905
+	LDI seteador, 0b01000001
 	STS OCR1AL, seteador
-	LDI seteador, 0xF4
+	LDI seteador, 0b00001111
 	STS OCR1AH, seteador
 	;Habilito a TIMER 1 a hacer interrupciones
 	LDI seteador, 0b00000010
@@ -210,3 +211,4 @@ espera_tres_segundos_fin:
 	CLR digito
 	OUT PORTB, digito
 	RET
+
