@@ -35,6 +35,9 @@
 .org OC1Aaddr
 	rjmp timer1_interrupt
 
+.org OC0Aaddr
+	rjmp timer0_interrupt
+
 .org INT_VECTORS_SIZE
 
 buscando_contricante_setup:
@@ -65,7 +68,17 @@ buscando_contricante_setup:
 	LDI seteador, 0b00000100 ;habilitamos al puerto D - Pin 2 a realizar interrupciones externas(con pin change)
 	STS PCICR, seteador 
 	STS PCMSK2, seteador
-
+;-------------------------------------------------------
+;----------------------TIMER 0--------------------------
+	;Seteo Timer0 en modo 2 -> CTC, TOP = 195, Pesclaer = 1024
+	ldi seteador, 0b00000010
+	out TCCR0A, seteador
+	;Seteo Prescaler en 1024
+	ldi seteador, 0b00000101
+	out TCCR0B, seteador
+	;Seteo OCR0A con 234 como tope para tener un delay de 15ms aproximadamente
+	ldi seteador, 234
+	out OCR0A, seteador
 ;-------------------------------------------------------
 ;-------------------SETEANDO USART----------------------
 	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51)
@@ -106,13 +119,21 @@ buscando_contrincante:
 	
 	RJMP buscando_contrincante
 
+
+;---------------------------------------------------------------
+;--------------------RUTINAS INTERRUPCIONES---------------------
+
 boton_pulsado:
-	LDI transmisor, N
-	STS UDR0, transmisor
+	;Cargo contador para timer0
+	LDI contador, 20
+	;Habilito a timer 0 a hacer interrupciones
+	LDI seteador, 0b00000010
+	STS TIMSK0, seteador
+	SEI
 	RETI	
 
 transmision_completa:
-	LSL GREG
+	;LSL GREG
 	RCALL espera_tres_segundos
 	RETI
 
@@ -120,15 +141,39 @@ recepcion_completa:
 	LDS receptor, UDR0
 	CPI receptor, N
 	BRNE recepcion_completa_fin
-	LSL GREG
+	;LSL GREG
 	RCALL espera_tres_segundos
 recepcion_completa_fin:
 	RETI
 
+timer1_interrupt:
+	;TODO agregar también los pines de Puerto C
+	;Decremento contador y modifico la salida
+	DEC contador
+	COM digito
+	OUT PINB, digito
+	RETI
+
+timer0_interrupt:
+	DEC contador
+	CPI contador, 0
+	BRNE timer0_interrupt_fin
+	LDI transmisor, N
+	STS UDR0, transmisor
+	;Deshabilito al timer0 a hacer interrupciones
+	CLR seteador
+	STS TIMSK0, seteador
+timer0_interrupt_fin:
+	RETI
+	
+
+;-----------------------------------------------------------
+;-------------------ESPERA 3 SEGUNDOS-----------------------
+
 espera_tres_segundos:
 	;TODO con el micro solo poner contador = 12
 	LDI contador, 24
-	;Seteo TIMER 1, 
+	;Seteo TIMER 1, un ciclo de prendido y apago es 0.5s
 	;Modo 4 CTC, Prescaler 64
 	LDI seteador, 0
 	STS TCCR1A, seteador
@@ -144,17 +189,14 @@ espera_tres_segundos:
 	STS TIMSK1, seteador
 	SEI
 espera_tres_segundos_loop:
-	CPI contador, 1
+	CPI contador, 0
 	BREQ espera_tres_segundos_fin
 	RJMP espera_tres_segundos_loop
 espera_tres_segundos_fin:
 	;Deshabilito TIMER 1 para hacer interrupciones
 	CLR seteador
 	STS TIMSK1, seteador
+	CLR digito
+	OUT PINB, digito
 	RET
 
-timer1_interrupt:
-	DEC contador
-	COM digito
-	OUT PINB, digito
-	RETI
