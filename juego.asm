@@ -11,6 +11,7 @@
 ;+----+----+----+----+----+----+----+----+         |    |
                                               
 .def receptor = R21
+.def buffer = R22
 
 .equ desplazamiento_ascii = 48
 .equ longitud_numero_secreto = 4
@@ -23,16 +24,12 @@ numero_jugador: .byte 4
 
 .cseg
 .org 0x0000
-	rjmp buscando_contricante_setup
+	rjmp juego_setup
 
-.org INT0addr
-	rjmp boton_pulsado
 
 .org URXCaddr
 	rjmp recepcion_completa
 
-.org UTXCaddr
-	rjmp transmision_completa
 
 
 .org INT_VECTORS_SIZE
@@ -42,6 +39,9 @@ juego_setup:
 	out sph, seteador
 	ldi seteador, LOW(RAMEND)
 	out spl, seteador
+
+	CLR contador
+	CLR digito
 	
 ;-------------------------------------------------------
 ;-----------CARGANDO PUNTERO A NUM JUGADOR--------------
@@ -93,13 +93,13 @@ juego_setup:
 
 	;UCSR0B 
 	;RXCIE0 = 1 ==> Habilito interrupción por recepción completa
-	;TXCIE0 = 1 ==> Habilito interrupción por transmisión complenta
+	;TXCIE0 = 0 ==> NO habilito interrupción por transmisión complenta
 	;UDRIE0 = 0 ==> No es necesario habilitar interruciones por registro vacío
 	;RXEN0 = 1 ==> Habilito el receptor
-	;TXEN0 = 1 ==> Habilito el transmisor
+	;TXEN0 = 0 ==> NO habilito el transmisor
 	;UCSZ02 = 0 ==> N es de 8 bits
 	;RXB80 TXB80 = 0 ==> No sirven
-	LDI seteador, 0b11011000
+	LDI seteador, 0b10010000
 	STS UCSR0B, seteador
 
 ;------------------------------------------------------
@@ -114,15 +114,21 @@ recepcion_completa:
 	;comparo el contador(iniciado en 0) con la longitud
 	;si el contador llega a la longitud del numero completo salto a recepcion_numero_jugador_completa
 	;transformo los ascii a numeros y valido que sean correctos
-	CPI contador, longitud_numero_secreto
-	BREQ recepcion_numero_jugador_completa
+	INC contador
 	LDS receptor, UDR0
 	ST X+, receptor
-	INC contador
+
+	;Para debug
+	OUT PORTB, receptor
+	;----
+
+	CPI contador, longitud_numero_secreto
+	BREQ recepcion_numero_jugador_completa
 	RJMP recepcion_completa_fin
-recepion_numero_jugador_completa:
-	RCALL ascii_a_numero
+recepcion_numero_jugador_completa:
+	RCALL ascii_a_entero
 	RCALL validar_numero
+	CLR contador
 recepcion_completa_fin:
 	RETI
 
@@ -136,19 +142,32 @@ validar_numero:
 	CLR contador
 	RCALL resetear_puntero_X
 validar_numero_loop:
+	INC contador
 	CPI contador, longitud_numero_secreto
 	BREQ numero_valido
 	LD digito, X+
 	CPI digito, 10
 	BRSH numero_no_valido
-	INC contador
 	RJMP validar_numero_loop
 numero_valido:
 	;TODO comienzar la comparación, como indicamos que comienza la comparacion?
 	;TODO desactivar recepcion
 	RCALL resetear_puntero_X
+
+	;Para debug
+	LDI digito, 0xFF
+	OUT PORTB, digito
+	;----
+	CLR seteador
+	STS UCSR0B, seteador
 	RJMP validar_numero_fin
 numero_no_valido:
+
+	;Para debug
+	CLR digito
+	OUT PORTB, digito
+	;----
+
 	RCALL resetear_puntero_X
 validar_numero_fin:
 	CLR contador
@@ -159,14 +178,16 @@ validar_numero_fin:
 ;Reinicia el puntero X
 ascii_a_entero:
 	RCALL resetear_puntero_X
-	CLR contador, 0
+	CLR contador
+ascii_a_entero_loop:
+	INC contador
 	CPI contador, longitud_numero_secreto
 	BREQ ascii_a_entero_fin
 	LD digito, X
-	DEC digito, desplazamiento_ascii
+	LDI buffer, desplazamiento_ascii
+	SUB digito, buffer
 	ST X+, digito
-	INC contador
-	RJMP ascii_a_entero
+	RJMP ascii_a_entero_loop
 ascii_a_entero_fin:
 	RCALL resetear_puntero_X
 	RET
@@ -176,4 +197,5 @@ resetear_puntero_X:
 	LDI XL, LOW(numero_jugador)
 	LDI XH, HIGH(numero_jugador)
 	RET
+
 
