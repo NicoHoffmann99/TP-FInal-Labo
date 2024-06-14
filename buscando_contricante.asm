@@ -6,10 +6,10 @@
 .def digito= R19
 
 .def GREG = R20
-;+----+----+----+----+----+----+----+----+		E3 | E2 | E1
-;|    |	   |    |    |    | E3 | E2 | E1 |         |    |
-;+----+----+----+----+----+----+----+----+         |    |
-                                              
+;+----+----+----+----+----+----+----+----+		 E3 |  E2 |  E1
+;|    |	   |    |    |    | E3 | E2 | E1 |       0  |  0  |  1
+;+----+----+----+----+----+----+----+----+       0  |  1  |  0
+;                                                1  |  0  |  0
 .def receptor = R21
 
 
@@ -45,7 +45,7 @@ buscando_contricante_setup:
 	out sph, seteador
 	ldi seteador, LOW(RAMEND)
 	out spl, seteador
-	
+
 	CLR contador
 	CLR digito
 	LDI GREG, 1
@@ -65,8 +65,15 @@ buscando_contricante_setup:
 	OUT PORTD, seteador
 ;-------------------------------------------------------
 ;----------------------TIMER 1--------------------------
-
-
+	;Seteo TIMER 1, un ciclo de prendido y apago es 0.5s
+	;Modo 4 CTC, Prescaler 1024(Se setea al implementarse el timer1)
+	LDI seteador, 0
+	STS TCCR1A, seteador
+	;Para el prescaler de 1024 necesito poner como TOP 3905
+	LDI seteador, 0b00001111
+	STS OCR1AH, seteador
+	LDI seteador, 0b01000001
+	STS OCR1AL, seteador
 ;-------------------------------------------------------
 ;----------------------INTERRUPT------------------------
 	ldi seteador, 0b00000010
@@ -118,13 +125,23 @@ buscando_contricante_setup:
 	;RXB80 TXB80 = 0 ==> No sirven
 	LDI seteador, 0b11011000
 	STS UCSR0B, seteador
+;------------------------------------------------------------
+;----------------------SETEO TIMER 1-------------------------
 
+;------------------------------------------------------------
+;-------------------INTERRUPCIÓN GLOBAL----------------------
 	SEI
 
 
 buscando_contrincante:
-	
+	SBRS GREG, 0
+	RJMP buscando_contrincante_fin 
 	RJMP buscando_contrincante
+buscando_contrincante_fin:
+	RCALL espera_tres_segundos
+	LSR GREG
+	RJMP buscando_contrincante
+
 
 
 ;---------------------------------------------------------------
@@ -140,16 +157,14 @@ boton_pulsado:
 	RETI	
 
 transmision_completa:
-	LSL GREG
-	
+	LDI GREG, 2
 	RETI
 
 recepcion_completa:
 	LDS receptor, UDR0
 	CPI receptor, N
 	BRNE recepcion_completa_fin
-	;LSL GREG
-	RCALL espera_tres_segundos
+	LDI GREG, 2
 recepcion_completa_fin:
 	RETI
 
@@ -158,21 +173,28 @@ timer1_interrupt:
 	;Decremento contador y modifico la salida
 	COM digito
 	OUT PORTB, digito
+	CPI contador, 0
+	BREQ timer1_interrupt_desactivar
 	DEC contador
+	RJMP timer1_interrupt_fin
+timer1_interrupt_desactivar:
+	CLR seteador
+	STS TIMSK1, seteador
+	CLR digito
+	OUT PORTB, digito
+timer1_interrupt_fin:
 	RETI
 
 timer0_interrupt:
 	DEC contador
 	CPI contador, 0
 	BRNE timer0_interrupt_fin
+	;Deshabilito al timer0 a hacer interrupciones
 	CLR seteador
 	STS TIMSK0, seteador
-	;Llamo a espera tres segundos
-	RCALL espera_tres_segundos
 	;Envío letra N 
 	LDI transmisor, N
 	STS UDR0, transmisor
-	;Deshabilito al timer0 a hacer interrupciones
 timer0_interrupt_fin:
 	RETI
 	
@@ -181,34 +203,13 @@ timer0_interrupt_fin:
 ;-------------------ESPERA 3 SEGUNDOS-----------------------
 
 espera_tres_segundos:
-	;TODO con el micro solo poner contador = 12
+	;TODO con el micro solo poner contador = 12 -
 	LDI contador, 12
-	;Seteo TIMER 1, un ciclo de prendido y apago es 0.5s
-	;Modo 4 CTC, Prescaler 1024
-	LDI seteador, 0
-	STS TCCR1A, seteador
-	LDI seteador, 0b00001101
-	STS TCCR1B, seteador
-	;Para el prescaler de 1024 necesito poner como TOP 3905
-	LDI seteador, 0b01000001
-	STS OCR1AL, seteador
-	LDI seteador, 0b00001111
-	STS OCR1AH, seteador
 	;Habilito a TIMER 1 a hacer interrupciones
 	LDI seteador, 0b00000010
 	STS TIMSK1, seteador
-	SEI
-
-espera_tres_segundos_loop:
-	CPI contador, 0
-	BREQ espera_tres_segundos_fin
-	RJMP espera_tres_segundos_loop
-
-espera_tres_segundos_fin:
-	;Deshabilito TIMER 1 para hacer interrupciones
-	CLR seteador
-	STS TIMSK1, seteador
-	CLR digito
-	OUT PORTB, digito
+	;Seteo Prescaler
+	LDI seteador, 0b00001101
+	STS TCCR1B, seteador
 	RET
 
