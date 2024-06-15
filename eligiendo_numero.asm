@@ -7,6 +7,7 @@
 .equ valor_alto_ADC = 204	;255 es 5V -> Quiero 4V que es redondear(255*4/5) = 204
 .equ valor_bajo_ADC = 51	;Quiero 1V que es redondear(255*1/5) = 51
 
+.def flagEtapaDos = R2
 .def seteador = R16
 .def digito = R17
 .def pos_digito = R18
@@ -102,7 +103,7 @@ eligiendo_numero_seteo:
 	;Modo0 -> Normal -> WGM[1:0] = 00
 	CLR seteador
 	sts TCCR2A, seteador
-	;El resto de la configuración lo hago unicamente cuando se va a usar el timer.
+	;El resto de la configuraci�n lo hago unicamente cuando se va a usar el timer.
 	;(prescaler y mascara de interrupts)
 	
 ;-------------------------------------------------------
@@ -123,8 +124,11 @@ digito_confirmado:
 	;Lo primero que hago es apagar el ADC (si la cantidad de digitos es menor a 4, luego lo vuelvo a encender)
 	clr seteador
 	STS ADCSRA, seteador
-	;Genero un delay para limpiar pulsos espurios (o por si se mantiene apretado el boton)
-	rcall esperar_medio_segundo
+	;Luego apago INT0 para evitar pulsos espurios (luego vuelve a ser encendido por timer2).
+	LDI seteador, 0b00000000
+	OUT EIMSK, seteador
+	;Vuelvo a leer digito de RAM por si el bot�n fue apretado dos veces seguidas sin incremento/decremento.
+	LD digito, Y
 	;Me fijo si digito = 0xFF (para prevenir que se apriete el boton seguido sin cambiar el numero a seleccionar)
 	cpi digito, 0xFF
 	breq fin_digito_confirmado
@@ -135,35 +139,30 @@ digito_confirmado:
 	;En la tabla, el d?gito ya seleccionado es guardado como 0xFF para poder evitar seleccionarlo de nuevo.
 	LDI seteador, 0xFF
 	ST Y, seteador
-	;Me fijo si cant_digito es menor a 4
-	cpi cant_digito, 4
-	BRLO volver_a_encender_adc
 	;TODO cuando cant_digito llega a 4, hay que cambiar los flags y pasar a la siguiente etapa.
-	
-fin_digito_confirmado:
 	;Escribo la cantidad de digitos ya seleccionados
 	OUT PORTC, cant_digito
+fin_digito_confirmado:
+	;Genero delay de 33ms para volver a encender INT0 y el ADC seteando antes el flag correspondiente (flagEtapaDos = 0xFF)
+	ldi seteador, 0xFF
+	mov flagEtapaDos, seteador
+	ldi contador, 1
+	rcall esperar_contador_33ms
 	RETI
-
-volver_a_encender_adc:
-	;vuelvo a setear el Start Conversion
-	LDI seteador, 0b11011111
-	STS ADCSRA, seteador
-	rjmp fin_digito_confirmado
 
 ;Interrupci?n por ADC dado a que se termin? la conversi?n del valor le?do en joystick
 joystic_ADC_interrupt:
 	;Se carga en buffer lo convertido
 	LDS buffer, ADCH
 
-	;TODO vchequear joystick tensi?n alta tensi?n baja del joystick 
 	;Si buffer > valor_alto_ADC incrementar digito
 	CPI buffer, valor_alto_ADC
 	BRSH joystick_incrementar
 	;Si buffer < valor_bajo_ADC decrementar digito
 	CPI buffer, valor_bajo_ADC
 	BRLO joystick_decrementar
-
+	;Si no se cumple ninguno de los thresholds dejo contador en 1 (33ms hasta la siguiente conversion).
+	ldi contador, 1
 	RJMP joystic_ADC_fin
 
 joystick_incrementar:	;Rutina donde se busca el siguiente numero en la secuencia del 0 al 9, salteando los ya elegidos, y volviendo al 0 si se incrementa desde el 9.
@@ -184,8 +183,8 @@ continuar_joystick_incrementar:
 	breq joystick_incrementar
 	;Si no lo es, escribo la salida por PORTB.
 	OUT PORTB, digito
-	;Antes de hacer el reti, espero medio segundo antes de que sea posible otro incremento/decremento.
-	rcall esperar_medio_segundo
+	;Antes de hacer el reti, apago por medio segundo el ADC.
+	ldi contador, 15 ;15*33ms es aprox 5s. (al final de joystick llamo a esperar_contador_33ms)
 	rjmp joystic_ADC_fin	;Fin de la interrupcion.
 
 joystick_decrementar:
@@ -200,12 +199,11 @@ continuar_joystick_decrementar: ;Si se llego hasta aqu? es porque el d?gito le?d
 	breq joystick_decrementar
 	;Si no lo es, escribo la salida por PINB.
 	OUT PORTB, digito
-	;Antes de hacer el reti, espero medio segundo antes de que sea posible otro incremento/decremento.
-	rcall esperar_medio_segundo
+	;Antes de hacer el reti, apago por medio segundo el ADC.
+	ldi contador, 15 ;15*33ms es aprox 5s.
 joystic_ADC_fin:	;Fin de la interrupcion.
-	;vuelvo a setear el Start Conversion
-	LDI seteador, 0b11011111
-	STS ADCSRA, seteador
+	;Del siguiente Start Conversion se encarga timer2. (si hubo incre/decre se espera 500ms, sino 33ms)
+	rcall esperar_contador_33ms
 	RETI
 
 resetear_indice:	;Rutina utilizada para volver el indice a 0, resetear el puntero Y, y leer a lo que apunta.
@@ -223,7 +221,39 @@ maximizar_indice:	;Rutina utilizada para setear el indice a 9, apuntar el punter
 ;Interrupcion por overflow de Timer2
 timer2_interrupt:
 	dec contador
+	CPI contador, 0
+	BREQ timer2_deshabilitar
+fin_timer2_interrupt:
 	reti
+
+timer2_deshabilitar: ;Cuando apago el timer2 (pasaron 0,5s) vuelvo a encender el ADC.
+	;Deshabilito interrupcion de timer2
+	clr seteador
+	STS TIMSK2, seteador
+	;Pongo el Clock select en 000 para apagar el contador
+	STS TCCR2B, seteador
+	;Primero me fijo sin cant_digito llego a 4, en su caso no vuelvo a encender INT0 ni ADC.
+	cpi cant_digito, 4
+	breq fin_timer2_interrupt
+	;Si no brancheo me fijo si el flag de volver a encender INT0 esta seteado (flagEtapaDos=0xFF)
+	ldi seteador, 0xFF
+	cp flagEtapaDos, seteador
+	breq encender_INT0
+fin_timer2_deshabilitar:
+	;Vuelvo a setear el Start Conversion para el ADC 
+	LDI seteador, 0b11011111
+	STS ADCSRA, seteador
+	rjmp fin_timer2_interrupt
+
+encender_INT0:
+	LDI seteador, 0b00000001
+	OUT EIMSK, seteador
+	;Apago el flag
+	clr seteador
+	mov flagEtapaDos, seteador
+	rjmp fin_timer2_deshabilitar
+
+
 
 ;------RUTINAS GLOBALES----------;
 
@@ -256,31 +286,18 @@ maximizar_puntero_y:
 	add YH, cero ;Le sumo el carry
 	ret
 
-;Rutina para generar un delay de medio segundo utilizando timer2
-esperar_medio_segundo:
-	;Itero 2 veces sobre el ciclo del timer (resulta en tiempo total de aprox. 0,5s)
-	LDI contador, 2
-	;Seteo la configuración que falta (se hace aqui ya que una vez que CS2 es distinto de 000 empieza el timer)
+;Rutina para generar un delay de contador*33ms entre conversiones del ADC utilizando timer2
+;Antes de hacer rcall esperar_contador_33ms, se debe cargar en el registro contador el multiplo deseado.
+esperar_contador_33ms:
+	;Seteo la configuraci�n que falta de timer2 (se hace aqui ya que una vez que CS2 es distinto de 000 empieza el timer)
 	;Le permito a timer2 hacer interrupcion por overflow.
 	LDI seteador, 0b00000001
 	STS TIMSK2, seteador
 	;Modo2 -> Normal -> WGM[2] = 0
-	;Prescaler N=1024 -> CS2[2:0] = 111
-	ldi seteador, 0b00000111
+	;Prescaler N=128 -> CS2[2:0] = 101
+	ldi seteador, 0b00000101
 	sts TCCR2B, seteador
-	;Habilito interrupt global ya que es interrupcion anidada
-	SEI
-
-esperar_medio_segundo_loop: ;Cuando el contador llegue a 0, termino la espera
-	;El contador es decrementado por la interrupcion por overflow de Timer2
-	CPI contador, 0
-	BREQ esperar_medio_segundo_fin
-	rjmp esperar_medio_segundo_loop
-
-esperar_medio_segundo_fin:
-	;Deshabilito interrupcion de timer1
-	clr seteador
-	STS TIMSK2, seteador
-	;Pongo el Clock select en 000 para apagar el contador
-	STS TCCR2B, seteador
+	
 	ret
+
+
