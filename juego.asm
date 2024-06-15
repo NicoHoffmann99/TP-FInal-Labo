@@ -111,40 +111,42 @@ juego_setup:
 	;RXB80 TXB80 = 0 ==> No sirven
 	LDI seteador, 0b10010000
 	STS UCSR0B, seteador
-
-
-	RCALL cargar_numero_secreto
+;------------------------------------------------------
+;------------INICIALIZANDO REGISTROS/SRAM--------------
 	CLR cant_digitos_bien_posicionados
+	CLR cant_digitos_mal_posicionados
+	LDI XL, LOW(cant_intentos)
+	LDI XH, HIGH(cant_intentos)
+	CLR buffer
+	ST X, buffer
 ;------------------------------------------------------
 ;-----------------INTERRUPCIÓN GLOBAL------------------
 	SEI
 
-
+;Inicio de recepción, se pone el contador en 0 y se apunta el puntero X a donde se va a guardar el numero del jugador
+;También se manda por los puertos la cantidad de digitos correctos bien posicionados y mal posicionados(previamente iniciados en 0)
 juego_recepcion:
-	;Para debug
+	OUT PORTB, cant_digitos_bien_posicionados
+	OUT PORTC, cant_digitos_mal_posicionados
 	CLR contador
-	CLR digito
-	OUT PORTB, digito
-	;----
 	RCALL resetear_puntero_X_numero_jugador
+;Loop de recepción, hasta que el contador no llegue a la longitud del numero requerida no sale
 juego_recepcion_loop:
 	CPI contador, longitud_numero_secreto
 	BREQ juego_validacion
 	RJMP juego_recepcion_loop
+;Valdación del número ingresado, si es correcto sigue a proxima rutina, sino vuelve la fase de recepción
 juego_validacion:
-	;Transformo numero ingresado ascii a entero y valido
+	;Transformo numero ingresado ascii a entero y valido el numero
 	RCALL ascii_a_entero
 	RCALL validar_numero
-
+	;Si no está encendido el flag de numero validado se vuelve a la etapa de recepción
 	SBRS GREG, 6
 	RJMP juego_recepcion
-	;Para debug
-	LDI digito, 0x03
-	OUT PORTB, digito
-	;----
 	;Desactivo el receptor
 	CLR seteador
 	STS UCSR0B, seteador
+;Se comparan ambos numeros, si la cantidad de digitos bien posicionados es igual a la longitud del numero entoncés salta a gano
 juego_comparacion:
 	RCALL comparar_numeros
 	LDI comparador, longitud_numero_secreto
@@ -154,24 +156,23 @@ juego_comparacion:
 	LDI seteador, 0b10010000
 	STS UCSR0B, seteador
 	RJMP juego_recepcion
+;Se ponen leds verdes prendidos, leds rojos muestan la cantidad de intentos
 gano:
 	LDI digito, 0xFF
 	OUT PORTB, digito
+	LDI XL, LOW(cant_intentos)
+	LDI XH, HIGH(cant_intentos)
+	LD buffer, X
+	OUT PORTC, buffer
 gano_loop:
 	RJMP gano_loop
 
 
 recepcion_completa:
-	;comparo el contador(iniciado en 0) con la longitud
-	;si el contador llega a la longitud del numero completo salto a recepcion_numero_jugador_completa
-	;transformo los ascii a numeros y valido que sean correctos
-	
+	;Se carga lo recibido en numero_jugador y se incrementa contador
 	LDS receptor, UDR0
 	ST X+, receptor
 	INC contador
-	;Para debug
-	OUT PORTB, receptor
-	;----
 	RETI
 
 ;----------------------------------------------------------
@@ -322,19 +323,5 @@ resetear_puntero_X_numero_jugador:
 resetear_puntero_Y_numero_secreto:
 	LDI YL, LOW(numero_secreto)
 	LDI YH, HIGH(numero_secreto)
-	RET
-
-;debug
-cargar_numero_secreto:
-	LDI YH, HIGH(numero_secreto)
-	LDI YL, LOW(numero_secreto)
-	LDI buffer, 1
-	ST Y+, buffer
-	LDI buffer, 2
-	ST Y+, buffer
-	LDI buffer, 3
-	ST Y+, buffer
-	LDI buffer, 4
-	ST Y+, buffer
 	RET
 
