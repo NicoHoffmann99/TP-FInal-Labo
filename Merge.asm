@@ -52,11 +52,8 @@ cant_intentos: .byte 1
 .org INT0addr
 	rjmp boton_pulsado
 
-.org URXCaddr
-	rjmp recepcion_completa
-
-.org UTXCaddr
-	rjmp transmision_completa
+.org OVF2addr
+	rjmp timer2_interrupt
 
 .org OC1Aaddr
 	rjmp timer1_interrupt
@@ -64,8 +61,12 @@ cant_intentos: .byte 1
 .org OC0Aaddr
 	rjmp timer0_interrupt
 
-.org OVF2addr
-	rjmp timer2_interrupt
+.org URXCaddr
+	rjmp recepcion_completa
+
+.org UTXCaddr
+	rjmp transmision_completa
+
 
 .org ADCCaddr
 	rjmp joystic_ADC_interrupt
@@ -73,7 +74,6 @@ cant_intentos: .byte 1
 
 
 .org INT_VECTORS_SIZE
-
 buscando_contricante_setup:
 	ldi seteador, HIGH(RAMEND)
 	out sph, seteador
@@ -169,17 +169,18 @@ buscando_contricante_setup:
 
 
 buscando_contrincante:
-	SBRS GREG, 0	;Termina cuando entro a transmision_completa o recepcion_completa y cambio GREG a Etapa2.
-	RJMP buscando_contrincante_fin 
+	;CPI GREG, ETAPA_DOS	;Termina cuando entro a transmision_completa o recepcion_completa y cambio GREG a Etapa2.
+	;BREQ buscando_contrincante_fin 
+	SBRS GREG, 0	;Mientras esté en GREG=ETAPA_UNO salteo
+	RJMP buscando_contrincante_fin
 	RJMP buscando_contrincante
 buscando_contrincante_fin:
 	RCALL espera_tres_segundos ;Hago titilar los Leds por 3segs y me voy a la siguiente etapa.
-	ldi GREG, ETAPA_DOS
+	;ldi GREG, ETAPA_DOS
 	RJMP eligiendo_numero_seteo
 
 ;---------------------------------------------------------------
 ;--------------------RUTINAS INTERRUPCIONES---------------------
-
 boton_pulsado:
 	cpi GREG, ETAPA_UNO
 	breq boton_pulsado_etapa_uno
@@ -189,24 +190,69 @@ boton_pulsado:
 
 boton_pulsado_etapa_uno:
 	;Cargo contador para timer0
-	LDI contador, 20
+	LDI contador, 50
 	;Habilito a timer 0 a hacer interrupciones
 	LDI seteador, 0b00000010
 	STS TIMSK0, seteador
 	rjmp fin_boton_pulsado
 
+;Cuando se apreta el bot?n salta INT0 a esta funci?n
 digito_confirmado:
-	;Lo primero que hago es apagar el ADC (si la cantidad de digitos es menor a 4, luego lo vuelvo a encender)
+	;Genero delay de 33ms para antirrebote (con el flag en 0xFF sé que la interrupcion vino del botón).
+	ldi seteador, 0xFF
+	mov flagEtapaDos, seteador
+	ldi seteador, 10
+	;ldi contador, 10
+	mov contador_t2, seteador
+	rcall esperar_contador_33ms
+fin_boton_pulsado:
+	RETI
+
+;Interrupcion por overflow de Timer2
+timer2_interrupt:
+	sub contador_t2, uno
+	;dec contador
+	;CPI contador, 0
 	clr seteador
+	cp contador_t2, seteador
+	BREQ timer2_deshabilitar
+fin_timer2_interrupt:
+	reti
+
+timer2_deshabilitar: ;Cuando apago el timer2 (pasaron 0,5s) vuelvo a encender el ADC.
+	;Deshabilito interrupcion de timer2
+	clr seteador
+	STS TIMSK2, seteador
+	;Pongo el Clock select en 000 para apagar el contador
+	STS TCCR2B, seteador
+	;Primero me fijo sin cant_digito llego a 4, en su caso apago INT0 y ADC.
+	ldi seteador, 4
+	cp cant_digito, seteador
+	breq caso_cant_digito_cuatro
+	;Si no brancheo me fijo si el flag de volver que la interrupcion vino de INT0 esta seteado (flagEtapaDos=0xFF)
+	ldi seteador, 0xFF
+	cp flagEtapaDos, seteador
+	breq timer2_INT0
+fin_timer2_deshabilitar:
+	;Vuelvo a setear el Start Conversion para el ADC 
+	LDI seteador, 0b11011111
 	STS ADCSRA, seteador
-	;Luego apago INT0 para evitar pulsos espurios (luego vuelve a ser encendido por timer2).
-	LDI seteador, 0b00000000
-	OUT EIMSK, seteador
-	;Vuelvo a leer digito de RAM por si el botón fue apretado dos veces seguidas sin incremento/decremento.
+	rjmp fin_timer2_interrupt
+
+timer2_INT0: ;Ejecuto la lógica para cuando se confirma el dígito a elegir.
+	;Apago el flag
+	clr flagEtapaDos
+	; ;Lo primero que hago es apagar el ADC (si la cantidad de digitos es menor a 4, luego lo vuelvo a encender)
+	; clr seteador
+	; STS ADCSRA, seteador
+	; ;Luego apago INT0 para evitar pulsos espurios (luego vuelve a ser encendido por timer2).
+	; LDI seteador, 0b00000000
+	; OUT EIMSK, seteador
+	;Vuelvo a leer digito de RAM por si el bot�n fue apretado dos veces seguidas sin incremento/decremento.
 	LD digito, Y
 	;Me fijo si digito = 0xFF (para prevenir que se apriete el boton seguido sin cambiar el numero a seleccionar)
 	cpi digito, 0xFF
-	breq fin_digito_confirmado
+	breq fin_timer2_deshabilitar
 	;Se guarda digito en la SRAM
 	ST X+, digito
 	;se incrementa la cantidad de digitos confirmados
@@ -217,25 +263,40 @@ digito_confirmado:
 	;TODO cuando cant_digito llega a 4, hay que cambiar los flags y pasar a la siguiente etapa.
 	;Escribo la cantidad de digitos ya seleccionados
 	OUT PORTC, cant_digito
-fin_digito_confirmado:
-	;Genero delay de 33ms para volver a encender INT0 y el ADC seteando antes el flag correspondiente (flagEtapaDos = 0xFF)
-	ldi seteador, 0xFF
-	mov flagEtapaDos, seteador
-	ldi seteador, 10
-	;ldi contador, 10
-	mov contador_t2, seteador
-	rcall esperar_contador_33ms
-fin_boton_pulsado:
-	RETI
+
+	rjmp fin_timer2_deshabilitar
+
+caso_cant_digito_cuatro: ;Si ya llegue a 4 digitos seleccionados, apago INT0 y no enciendo ADC.
+	LDI seteador, 0b00000000
+	OUT EIMSK, seteador
+	;Envio la J
+	LDI transmisor, J
+	STS UDR0, transmisor
+	rjmp fin_timer2_interrupt
 
 transmision_completa:
+	;LSL GREG
+	;CPI GREG, ETAPA_UNO
+	;BREQ transmision_etapa_uno
+	;CPI GREG, ETAPA_DOS
+	;BREQ transmision_etapa_dos
+	SBRC GREG, 0
+	rjmp transmision_etapa_uno
+	SBRC GREG, 1
+	rjmp transmision_etapa_dos
+	rjmp fin_transmision_completa
+transmision_etapa_uno:
 	LDI GREG, ETAPA_DOS
+	RJMP fin_transmision_completa
+transmision_etapa_dos:
+	LDI GREG, ETAPA_TRES
+fin_transmision_completa:
 	RETI
 
 recepcion_completa:
 	cpi GREG, ETAPA_UNO
 	breq recepcion_completa_etapa_uno
-	cpi GREG, ETAPA_DOS
+	cpi GREG, ETAPA_TRES
 	breq recepcion_completa_etapa_tres
 	cpi GREG, FIN_JUEGO
 	breq recepcion_completa_fin_juego
@@ -244,14 +305,15 @@ recepcion_completa_etapa_uno:
 	LDS receptor, UDR0
 	CPI receptor, N
 	BRNE recepcion_completa_fin
-	LDI GREG, 2
+	LDI GREG, ETAPA_DOS
 	rjmp recepcion_completa_fin
 recepcion_completa_etapa_tres:
 	;Se carga lo recibido en numero_jugador y se incrementa contador
 	LDS receptor, UDR0
 	ST X+, receptor
-	INC contador
-	rjmp recepcion_completa_fin
+	add contador_e3, uno
+recepcion_completa_fin:
+	RETI
 recepcion_completa_fin_juego:
 	LDS receptor, UDR0
 	CPI receptor, R
@@ -262,12 +324,9 @@ recepcion_completa_fin_juego:
 	STS WDTCSR, seteador
 reset_loop: ;Aqui espero a que pasen los 16ms y el Watchdog resetee el sistema.
 	rjmp reset_loop
-recepcion_completa_fin:
-	RETI
 
 
 timer1_interrupt:
-	;TODO agregar también los pines de Puerto C
 	;Decremento contador y modifico la salida
 	OUT PORTC, digito
 	COM digito
@@ -313,10 +372,8 @@ espera_tres_segundos:
 	STS TCCR1B, seteador
 	RET
 
-
-
 ;-------------------------------------------------------------------;
-;-------------------ETAPA BUSCANDO CONTRINCANTE---------------------;
+;-------------------ETAPA ELIGIENDO NUMERO--------------------------;
 ;-------------------------------------------------------------------;
 
 ;SETEO PARA LA PARTE DE ELIGIENDO NUMERO(DESPU?S VEMOS DONDE MOVER LA ACTIVACI?N DE REGISTROS)
@@ -417,7 +474,7 @@ eligiendo_numero_seteo:
 	;TXEN0 = 1 ==> Habilito el transmisor
 	;UCSZ02 = 0 ==> N es de 8 bits
 	;RXB80 TXB80 = 0 ==> No sirven
-	LDI seteador, 0b00011000
+	LDI seteador, 0b01011000
 	STS UCSR0B, seteador
 
 ;-------------------------------------------------------
@@ -428,19 +485,23 @@ eligiendo_numero_seteo:
 
 ;LOOP de etapa eligiendo_numero
 eligiendo_numero:
-	mov comparador, cant_digito
-	cpi comparador, 4
-	breq fin_eligiendo_numero
+	;mov comparador, cant_digito
+	;cpi comparador, 4
+	;CPI GREG, ETAPA_TRES
+	;breq fin_eligiendo_numero
+	SBRS GREG, 1 ;Salteo si estoy en etapa2
+	RJMP fin_eligiendo_numero 
 	RJMP eligiendo_numero
 fin_eligiendo_numero:
 	;Envio la J
-	LDI transmisor, J
-	STS UDR0, transmisor
+	;LDI transmisor, J
+	;STS UDR0, transmisor
 	;Hago titilar los leds durante 3 segs
 	ldi digito, 0xFF
 	rcall espera_tres_segundos
 	;Cambio GREG a Etapa3
-	ldi GREG, ETAPA_TRES
+	;ldi GREG, ETAPA_TRES
+	
 	rjmp juego_setup
 
 ;-----------------INTERRUPCIONES---------------------;
@@ -520,47 +581,6 @@ maximizar_indice:	;Rutina utilizada para setear el indice a 9, apuntar el punter
 	LD digito, Y
 	rjmp continuar_joystick_decrementar
 
-;Interrupcion por overflow de Timer2
-timer2_interrupt:
-	sub contador_t2, uno
-	;dec contador
-	;CPI contador, 0
-	clr seteador
-	cp contador_t2, seteador
-	BREQ timer2_deshabilitar
-fin_timer2_interrupt:
-	reti
-
-timer2_deshabilitar: ;Cuando apago el timer2 (pasaron 0,5s) vuelvo a encender el ADC.
-	;Deshabilito interrupcion de timer2
-	clr seteador
-	STS TIMSK2, seteador
-	;Pongo el Clock select en 000 para apagar el contador
-	STS TCCR2B, seteador
-	;Primero me fijo sin cant_digito llego a 4, en su caso no vuelvo a encender INT0 ni ADC.
-	ldi seteador, 4
-	cp cant_digito, seteador
-	breq fin_timer2_interrupt
-	;Si no brancheo me fijo si el flag de volver a encender INT0 esta seteado (flagEtapaDos=0xFF)
-	ldi seteador, 0xFF
-	cp flagEtapaDos, seteador
-	breq encender_INT0
-fin_timer2_deshabilitar:
-	;Vuelvo a setear el Start Conversion para el ADC 
-	LDI seteador, 0b11011111
-	STS ADCSRA, seteador
-	rjmp fin_timer2_interrupt
-
-encender_INT0:
-	LDI seteador, 0b00000001
-	OUT EIMSK, seteador
-	;Apago el flag
-	clr seteador
-	mov flagEtapaDos, seteador
-	rjmp fin_timer2_deshabilitar
-
-
-
 ;------RUTINAS GLOBALES----------;
 
 ;Se cargan los 10 digitos (0 a 9) en SRAM para ir comparando con el registro digito y evitar digitos ya seleccionados.
@@ -607,7 +627,9 @@ esperar_contador_33ms:
 ;-------------------------ETAPA DE JUEGO----------------------------;
 ;-------------------------------------------------------------------;
 
+
 juego_setup:
+	
 	/*ldi seteador, HIGH(RAMEND)
 	out sph, seteador
 	ldi seteador, LOW(RAMEND)
@@ -615,7 +637,7 @@ juego_setup:
 
 	;CLR contador
 	;CLR digito
-	
+	;ldi digito, 0b00001010
 ;-------------------------------------------------------
 ;-----------CARGANDO PUNTERO A NUM JUGADOR--------------
 	LDI XH, HIGH(numero_jugador)
