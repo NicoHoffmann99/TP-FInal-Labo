@@ -1,9 +1,9 @@
 .include "m328pdef.inc"
 
-.equ ETAPA_UNO = 1
-.equ ETAPA_DOS = 2
-.equ ETAPA_TRES = 4
-.equ FIN_JUEGO = 8
+.equ ETAPA_UNO	= 0b00000001
+.equ ETAPA_DOS	= 0b00000010
+.equ ETAPA_TRES	= 0b00000100
+.equ FIN_JUEGO	= 0b00001000
 .equ valor_alto_ADC = 204	;255 es 5V -> Quiero 4V que es redondear(255*4/5) = 204
 .equ valor_bajo_ADC = 51	;Quiero 1V que es redondear(255*1/5) = 51
 .equ J = 74
@@ -129,11 +129,10 @@ buscando_contricante_setup:
 
 ;-------------------------------------------------------
 ;-------------------SETEANDO USART----------------------
-	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51), 16MHz (UBRRG=103)
-	;TODO cambiarlo para f=1MHz y baud de 2400 o 4800 (menor error posible)
+	;BaudRate de 4800(ejemplo), para Frec de 1MHz(UBRRG=12) (menor error posible y máxima velocidad)
 	CLR seteador
 	STS UBRR0H, seteador
-	LDI seteador, 103
+	LDI seteador, 12
 	STS UBRR0L, seteador
 
 	;UCSR0A Solo tiene flags y el modo doble velocidad(dejo simple velocidad)
@@ -248,7 +247,7 @@ timer2_INT0: ;Ejecuto la lógica para cuando se confirma el dígito a elegir.
 	; ;Luego apago INT0 para evitar pulsos espurios (luego vuelve a ser encendido por timer2).
 	; LDI seteador, 0b00000000
 	; OUT EIMSK, seteador
-	;Vuelvo a leer digito de RAM por si el bot�n fue apretado dos veces seguidas sin incremento/decremento.
+	;Vuelvo a leer digito de RAM por si el bot?n fue apretado dos veces seguidas sin incremento/decremento.
 	LD digito, Y
 	;Me fijo si digito = 0xFF (para prevenir que se apriete el boton seguido sin cambiar el numero a seleccionar)
 	cpi digito, 0xFF
@@ -275,15 +274,14 @@ caso_cant_digito_cuatro: ;Si ya llegue a 4 digitos seleccionados, apago INT0 y n
 	rjmp fin_timer2_interrupt
 
 transmision_completa:
-	;LSL GREG
-	;CPI GREG, ETAPA_UNO
-	;BREQ transmision_etapa_uno
-	;CPI GREG, ETAPA_DOS
-	;BREQ transmision_etapa_dos
-	SBRC GREG, 0
+	CPI GREG, ETAPA_UNO
+	BREQ transmision_etapa_uno
+	CPI GREG, ETAPA_DOS
+	BREQ transmision_etapa_dos
+	/*SBRC GREG, 0
 	rjmp transmision_etapa_uno
 	SBRC GREG, 1
-	rjmp transmision_etapa_dos
+	rjmp transmision_etapa_dos*/
 	rjmp fin_transmision_completa
 transmision_etapa_uno:
 	LDI GREG, ETAPA_DOS
@@ -312,6 +310,7 @@ recepcion_completa_etapa_tres:
 	LDS receptor, UDR0
 	ST X+, receptor
 	add contador_e3, uno
+	;OUT PORTB, receptor
 recepcion_completa_fin:
 	RETI
 recepcion_completa_fin_juego:
@@ -320,10 +319,12 @@ recepcion_completa_fin_juego:
 	BRNE recepcion_completa_fin
 	;Si recibi una R en la etapa de fin de juego, reseteo el micro.
 	;Esto lo hago habilitando el Watchdog en modo system reset para 16ms.
-	ldi seteador, 0b00001000
+	ldi seteador, 0b00010000 ;Habilito el WatchDog Change Enable (WDCE)
 	STS WDTCSR, seteador
-reset_loop: ;Aqui espero a que pasen los 16ms y el Watchdog resetee el sistema.
-	rjmp reset_loop
+	ldi seteador, 0b00001001 ;Pongo modo system Reset.
+	STS WDTCSR, seteador
+	rjmp recepcion_completa_fin
+
 
 
 timer1_interrupt:
@@ -444,12 +445,11 @@ eligiendo_numero_seteo:
 	;El resto de la configuración lo hago unicamente cuando se va a usar el timer.
 	;(prescaler y mascara de interrupts)
 
-;-------------------SETEANDO USART----------------------
-	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51), 16MHz (UBRRG=103)
-	;TODO cambiarlo para f=1MHz y baud de 2400 o 4800 (menor error posible)
+/*;-------------------SETEANDO USART----------------------
+	;BaudRate de 4800(ejemplo), para Frec de 1MHz(UBRRG=12) (menor error posible y máxima velocidad)
 	CLR seteador
 	STS UBRR0H, seteador
-	LDI seteador, 103
+	LDI seteador, 12
 	STS UBRR0L, seteador
 
 	;UCSR0A Solo tiene flags y el modo doble velocidad(dejo simple velocidad)
@@ -475,7 +475,7 @@ eligiendo_numero_seteo:
 	;UCSZ02 = 0 ==> N es de 8 bits
 	;RXB80 TXB80 = 0 ==> No sirven
 	LDI seteador, 0b01011000
-	STS UCSR0B, seteador
+	STS UCSR0B, seteador*/
 
 ;-------------------------------------------------------
 ;----------------Interrupci?n Global--------------------
@@ -637,7 +637,6 @@ juego_setup:
 
 	;CLR contador
 	;CLR digito
-	;ldi digito, 0b00001010
 ;-------------------------------------------------------
 ;-----------CARGANDO PUNTERO A NUM JUGADOR--------------
 	LDI XH, HIGH(numero_jugador)
@@ -666,10 +665,10 @@ juego_setup:
 
 ;-------------------------------------------------------
 ;-------------------SETEANDO USART----------------------
-	;BaudRate de 9600(ejemplo), tiro Frec de 8MHz(UBRRG=51), 16MHz (UBRRG=103)
+	/*;BaudRate de 4800(ejemplo), para Frec de 1MHz(UBRRG=12) (menor error posible y máxima velocidad)
 	CLR seteador
 	STS UBRR0H, seteador
-	LDI seteador, 103
+	LDI seteador, 12
 	STS UBRR0L, seteador
 
 	;UCSR0A Solo tiene flags y el modo doble velocidad(dejo simple velocidad)
@@ -695,7 +694,7 @@ juego_setup:
 	;UCSZ02 = 0 ==> N es de 8 bits
 	;RXB80 TXB80 = 0 ==> No sirven
 	LDI seteador, 0b10010000
-	STS UCSR0B, seteador
+	STS UCSR0B, seteador*/
 ;------------------------------------------------------
 ;------------INICIALIZANDO REGISTROS/SRAM--------------
 	CLR cant_digitos_bien_posicionados
@@ -753,6 +752,8 @@ gano:
 	LD buffer, X
 	OUT PORTC, buffer
 	LDI GREG, FIN_JUEGO
+	LDI seteador, 0b10010000
+	STS UCSR0B, seteador
 gano_loop:
 	RJMP gano_loop
 
