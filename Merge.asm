@@ -75,6 +75,15 @@ cant_intentos: .byte 1
 
 .org INT_VECTORS_SIZE
 buscando_contricante_setup:
+	;Apago el Watchdog
+	IN seteador, MCUSR
+	ANDI seteador, 0b11110111
+	OUT MCUSR, seteador	
+	ldi seteador, 0b00011000 ;Habilito el WatchDog Change Enable (WDCE)
+	STS WDTCSR, seteador
+	CLR seteador
+	STS WDTCSR, seteador ;Apago WDE
+
 	ldi seteador, HIGH(RAMEND)
 	out sph, seteador
 	ldi seteador, LOW(RAMEND)
