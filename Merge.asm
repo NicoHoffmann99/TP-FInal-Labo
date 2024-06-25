@@ -345,6 +345,8 @@ boton_pulsado:
 	breq boton_pulsado_etapa_uno
 	cpi GREG, ETAPA_DOS
 	breq boton_pulsado_etapa_dos
+	cpi GREG, FIN_JUEGO
+	breq boton_pulsado_fin_juego
 	rjmp fin_boton_pulsado	
 
 boton_pulsado_etapa_uno: ;Si ETAPA_UNO y apretan botón
@@ -362,6 +364,14 @@ boton_pulsado_etapa_dos: ;Si ETAPA_DOS y apretan botón
 	ldi seteador, 10
 	mov contador_t2, seteador
 	rcall esperar_contador_33ms
+	rjmp fin_boton_pulsado
+boton_pulsado_fin_juego:
+	;Si se apreta el boton en la etapa de fin de juego, reseteo el micro.
+	;Esto lo hago habilitando el Watchdog en modo system reset para 16ms.
+	ldi seteador, 0b00010000 ;Habilito el WatchDog Change Enable (WDCE)
+	STS WDTCSR, seteador
+	ldi seteador, 0b00001001 ;Pongo modo system Reset.
+	STS WDTCSR, seteador
 fin_boton_pulsado:
 	RETI
 
@@ -512,7 +522,6 @@ recepcion_completa_fin_juego:
 	STS WDTCSR, seteador
 	ldi seteador, 0b00001001 ;Pongo modo system Reset.
 	STS WDTCSR, seteador
-	rjmp recepcion_completa_fin
 recepcion_completa_fin:
 	RETI
 
