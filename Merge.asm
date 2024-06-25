@@ -141,7 +141,7 @@ buscando_contricante_setup:
 	ldi seteador, 0b00000010
 	sts EICRA, R16 ;setar el INT0 por flanco descendente
 	ldi seteador, 0b00000001
-	out EIMSK, R16 ;permito que INT0 haga interrupciones
+	out EIMSK, seteador ;permito que INT0 haga interrupciones
 
 ;-------------------------------------------------------
 ;----------------------TIMER 0--------------------------
@@ -248,7 +248,7 @@ eligiendo_numero_seteo:
 ;-------------------------------------------------------
 ;-------------------MODIFICO USART----------------------
 	;Solamente deshabilito interrupcion por recepcion completa (RXCIE0 = 0)
-	LDI seteador, 0b01010000
+	LDI seteador, 0b01001000
 	STS UCSR0B, seteador
 
 ;--------------------------------------------------;
@@ -333,6 +333,8 @@ gano:
 	LDI GREG, FIN_JUEGO
 	LDI seteador, 0b10010000
 	STS UCSR0B, seteador
+	LDI seteador, 0b00000001
+	OUT EIMSK, seteador
 gano_loop:
 	RJMP gano_loop
 
