@@ -131,7 +131,7 @@ buscando_contricante_setup:
 	;Modo 4 CTC, Prescaler 64(Se setea al implementarse el timer1)
 	LDI seteador, 0
 	STS TCCR1A, seteador
-	;Para el prescaler de 1024 necesito poner como TOP 3905
+	;Para el prescaler de 64 necesito poner como TOP 3905
 	LDI seteador, 0b00001111
 	STS OCR1AH, seteador
 	LDI seteador, 0b01000001
